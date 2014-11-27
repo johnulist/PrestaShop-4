@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+  <name>qinvoice_connect</name>
+  <displayName><![CDATA[Qinvoice Connect]]></displayName>
+  <version><![CDATA[2.0.4]]></version>
+  <description><![CDATA[Connect to q-invoice.com for sending and handling invoices.]]></description>
+  <author><![CDATA[qinvoice.com]]></author>
+  <tab><![CDATA[billing_invoicing]]></tab>
+  <confirmUninstall>Are you sure you want to uninstall? You will lose all your settings!</confirmUninstall>
+  <is_configurable>1</is_configurable>
+  <need_instance>0</need_instance>
+  <limited_countries></limited_countries>
+</module>
