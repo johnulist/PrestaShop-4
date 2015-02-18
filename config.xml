@@ -2,7 +2,7 @@
 <module>
   <name>qinvoice_connect</name>
   <displayName><![CDATA[Qinvoice Connect]]></displayName>
-  <version><![CDATA[2.0.4]]></version>
+  <version><![CDATA[2.0.9]]></version>
   <description><![CDATA[Connect to q-invoice.com for sending and handling invoices.]]></description>
   <author><![CDATA[qinvoice.com]]></author>
   <tab><![CDATA[billing_invoicing]]></tab>

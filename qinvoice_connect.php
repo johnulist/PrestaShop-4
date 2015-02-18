@@ -3,7 +3,7 @@
  * Plugin Name: Q-invoice Connect for PrestaShop
  * Plugin URI: www.q-invoice.com
  * Description: Print order invoices directly through q-invoice
- * Version: 2.0.4
+ * Version: 2.0.9
  * Author: q-invoice.com
  * License: GPLv3 or later
  * License URI: http://www.opensource.org/licenses/gpl-license.php
@@ -20,11 +20,12 @@ class Qinvoice_Connect extends PaymentModule
 {
 	public function __construct()
 	{
+		$this->bootstrap = true;
 		$this->name = 'qinvoice_connect';
 	    $this->tab = 'billing_invoicing';
         $this->author = 'q-invoice.com';
         $this->module_key = 'c846bb4014bfa988d9a1ca1778215296';
-        $this->version = '2.0.4';
+        $this->version = '2.0.9';
         $this->need_instance = 0;
         $this->is_configurable = 1;
         $this->displayName = $this->l('Qinvoice Connect');
@@ -145,7 +146,8 @@ class Qinvoice_Connect extends PaymentModule
 	private function generateInvoice($orderid){
 		
 		$invoice = new qinvoice(Configuration::get('QINVOICE_CONNECT_API_USERNAME'),Configuration::get('QINVOICE_CONNECT_API_PASSWORD'),Configuration::get('QINVOICE_CONNECT_API_URL'));
-		
+		$invoice->identifier = 'prestashop_'. $this->version;
+
 		$order = new Order($orderid);
 
 		$delivery_address = new Address($order->id_address_delivery);
@@ -170,7 +172,7 @@ class Qinvoice_Connect extends PaymentModule
 		$products = $cart->getProducts();
 
 		$date = explode(" ", $order->invoice_date);
-		$invoice->date = $date[0];
+		$invoice->date = strlen($date[0]) > 0 ? $date[0] : Date('Y-m-d');
 
 		$invoice->companyname = $invoice_address->company;
 		
@@ -185,6 +187,8 @@ class Qinvoice_Connect extends PaymentModule
 		$invoice->country = $invoice_country->iso_code;
 
 		$invoice->phone = $invoice_address->phone;
+
+		$invoice->vatnumber = $invoice_address->vat_number;
 		
 		$invoice->delivery_address = $delivery_address->address1; 				// Self-explanatory
 		$invoice->delivery_address2 = $delivery_address->address2;
@@ -208,13 +212,19 @@ class Qinvoice_Connect extends PaymentModule
 		$invoice->action = (int)Configuration::get('QINVOICE_CONNECT_INVOICE_ACTION');
 		$invoice->saverelation = (int)Configuration::get('QINVOICE_CONNECT_SAVE_RELATION');
 		$invoice->layout = (int)Configuration::get('QINVOICE_CONNECT_LAYOUT_CODE');
+
+
+		$invoice->calculation_method = Configuration::get('QINVOICE_CONNECT_CALCULATION_METHOD');
+
 		
 		$invoice->addTag($order->reference);
 
+		$ecotax_total = 0;
 		foreach($products as $p){
-			// echo '<pre>';
+
 			// print_r($p);
-			// echo '</pre>';
+
+			// die();
 
 			$attributes = explode(",",$p['attributes']);
 			$descattr = null;
@@ -238,13 +248,36 @@ class Qinvoice_Connect extends PaymentModule
 			$params = array( 	'code' => $product_code,
                  					'description' => $p['name'] . $descattr,
                  					'price' => $p['price']*100,
-                 					'price_incl' => '',
-									'price_vat' => '',
+                 					'price_incl' => $p['price_wt']*100,
+									'price_vat' => ($p['price_wt']-$p['price'])*100,
                  					'vatpercentage' => $p['rate']*100,
                  					'discount' => 0,
                  					'quantity' => $p['cart_quantity']*100,
                  					'categories' => $p['category'],
                  					'ledgeraccount' => Configuration::get('QINVOICE_CONNECT_DEFAULT_LEDGER')
+
+                 				);
+                 $invoice->addItem($params);
+                 $params = array();
+
+            if($p['ecotax'] > 0){
+            	$ecotax_total += $p['ecotax']*$p['cart_quantity'];
+            }
+		}
+
+		if($ecotax_total > 0){
+			$ecotax_total = $ecotax_total*100;
+			$ecotax_total_incl = $ecotax_total*(100 + Configuration::get('QINVOICE_CONNECT_DISCOUNT_RATE'));
+
+			$params = array( 	'code' => 'ECOTAX',
+                 					'description' => 'Ecotax',
+                 					'price' => $ecotax_total,
+                 					'price_incl' => $ecotax_total_incl,
+									'price_vat' => $ecotax_total_incl - $ecotax,
+                 					'vatpercentage' => Configuration::get('QINVOICE_CONNECT_DISCOUNT_RATE')*100,
+                 					'discount' => 0,
+                 					'quantity' => 100,
+                 					'categories' => ''
 
                  				);
                  $invoice->addItem($params);
@@ -432,6 +465,21 @@ class Qinvoice_Connect extends PaymentModule
 	            $updated = true;
 	        }
 
+	        // QINVOICE_CONNECT_CALCULATION_METHOD
+	        $value = strval(Tools::getValue('QINVOICE_CONNECT_CALCULATION_METHOD'));
+	        if (!$value  || empty($value) || !Validate::isGenericName($value))
+	        {
+	            //$output .= $this->displayError( $this->l('Invalid Configuration value for Invoice trigger') );
+	            $errors++;
+	            $error_fields[] = $this->l('Calculation method');
+	        }
+	        else
+	        {
+	            Configuration::updateValue('QINVOICE_CONNECT_CALCULATION_METHOD', $value);
+	            //$output .= $this->displayConfirmation($this->l('Settings updated'));
+	            $updated = true;
+	        }
+
 	        // QINVOICE_CONNECT_INVOICE_ACTION
 	        $value = strval(Tools::getValue('QINVOICE_CONNECT_INVOICE_ACTION'));
 	        if (!Validate::isInt($value))
@@ -488,6 +536,20 @@ class Qinvoice_Connect extends PaymentModule
 	        else
 	        {
 	            Configuration::updateValue('QINVOICE_CONNECT_DISCOUNT_RATE', $value);
+	            //$output .= $this->displayConfirmation($this->l('Settings updated'));
+	            $updated = true;
+	        }
+	        // QINVOICE_CONNECT_SAVE_RELATION
+	        $value = strval(Tools::getValue('QINVOICE_CONNECT_ECOTAX_RATE'));
+	        if (!Validate::isInt($value))
+	        {
+	            //$output .= $this->displayError( $this->l('Invalid Configuration value for save relation') );
+	            $errors++;
+	            $error_fields[] = $this->l('Ecotax VAT %');
+	        }
+	        else
+	        {
+	            Configuration::updateValue('QINVOICE_CONNECT_ECOTAX_RATE', $value);
 	            //$output .= $this->displayConfirmation($this->l('Settings updated'));
 	            $updated = true;
 	        }
@@ -553,6 +615,18 @@ class Qinvoice_Connect extends PaymentModule
 		    								'name' => $this->l('When order is marked as shipped')
 	    								)
 	    							);
+
+		$calulation_method_options = array(
+	    								array(
+		    								'id_option' => 'incl',
+		    								'name' => $this->l('Prices are with VAT included')
+	    								),
+	    								array(
+		    								'id_option' => 'excl',
+		    								'name' => $this->l('Prices are without VAT')
+	    								)
+	    							);
+
 	    $invoice_action_options = array(
 	    								array(
 		    								'id_option' => 0,
@@ -578,7 +652,7 @@ class Qinvoice_Connect extends PaymentModule
 	    								)
 	    							);
 
-	    $invoice_discount_options = array(
+	    $invoice_vat_options = array(
 	    								array(
 		    								'id_option' => 0,
 		    								'name' => $this->l('0%')
@@ -592,6 +666,7 @@ class Qinvoice_Connect extends PaymentModule
 		    								'name' => $this->l('21%')
 	    								)
 	    							);
+	   	
 	     
 	    // Init Fields form array
 	    $fields_form[0]['form'] = array(
@@ -710,10 +785,33 @@ class Qinvoice_Connect extends PaymentModule
 	            ),
 	            array(
 	                'type' => 'select',
+	                'label' => $this->l('Calulation method'),
+	                'desc' => $this->l('Which price is leading?'),
+	                'name' => 'QINVOICE_CONNECT_CALCULATION_METHOD',
+	                'options' => array(
+					    'query' => $calulation_method_options,                           // $options contains the data itself.
+					    'id' => 'id_option',                           // The value of the 'id' key must be the same as the key for 'value' attribute of the <option> tag in each $options sub-array.
+					    'name' => 'name'                               // The value of the 'name' key must be the same as the key for the text content of the <option> tag in each $options sub-array.
+					  ),
+	                'required' => true
+	            ),
+	            array(
+	                'type' => 'select',
 	                'label' => $this->l('Discount VAT %'),
 	                'name' => 'QINVOICE_CONNECT_DISCOUNT_RATE',
 	                'options' => array(
-					    'query' => $invoice_discount_options,                           // $options contains the data itself.
+					    'query' => $invoice_vat_options,                           // $options contains the data itself.
+					    'id' => 'id_option',                           // The value of the 'id' key must be the same as the key for 'value' attribute of the <option> tag in each $options sub-array.
+					    'name' => 'name'                               // The value of the 'name' key must be the same as the key for the text content of the <option> tag in each $options sub-array.
+					  ),
+	                'required' => true
+	            ),
+	            array(
+	                'type' => 'select',
+	                'label' => $this->l('Ecotax VAT %'),
+	                'name' => 'QINVOICE_CONNECT_ECOTAX_RATE',
+	                'options' => array(
+					    'query' => $invoice_vat_options,                           // $options contains the data itself.
 					    'id' => 'id_option',                           // The value of the 'id' key must be the same as the key for 'value' attribute of the <option> tag in each $options sub-array.
 					    'name' => 'name'                               // The value of the 'name' key must be the same as the key for the text content of the <option> tag in each $options sub-array.
 					  ),
@@ -810,6 +908,8 @@ class Qinvoice_Connect extends PaymentModule
 		    $helper->fields_value['QINVOICE_CONNECT_INVOICE_ACTION'] = Configuration::get('QINVOICE_CONNECT_INVOICE_ACTION');
 		    $helper->fields_value['QINVOICE_CONNECT_SAVE_RELATION'] = Configuration::get('QINVOICE_CONNECT_SAVE_RELATION');
 		    $helper->fields_value['QINVOICE_CONNECT_DISCOUNT_RATE'] = Configuration::get('QINVOICE_CONNECT_DISCOUNT_RATE');
+		    $helper->fields_value['QINVOICE_CONNECT_ECOTAX_RATE'] = Configuration::get('QINVOICE_CONNECT_ECOTAX_RATE');
+		    $helper->fields_value['QINVOICE_CONNECT_CALCULATION_METHOD'] = Configuration::get('QINVOICE_CONNECT_CALCULATION_METHOD');
 		     
 		    return $helper->generateForm($fields_form);
 		}
